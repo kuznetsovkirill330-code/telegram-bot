@@ -1,5 +1,4 @@
 import os
-import time
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
@@ -8,8 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
-
-# ================== НАСТРОЙКИ ==================
+# ================= НАСТРОЙКИ =================
 
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
@@ -21,275 +19,232 @@ MANAGER_IDS = [1896626491]
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
+tickets = {}
 ticket_counter = 0
 
-
-# ================== АНТИСПАМ ==================
-
-user_last_message = {}
-user_last_ticket = {}
-
-MESSAGE_COOLDOWN = 2
-TICKET_COOLDOWN = 180
-
-
-def is_spam(user_id):
-    now = time.time()
-    last = user_last_message.get(user_id, 0)
-    if now - last < MESSAGE_COOLDOWN:
-        return True
-    user_last_message[user_id] = now
-    return False
-
-
-def ticket_cooldown(user_id):
-    now = time.time()
-    last = user_last_ticket.get(user_id, 0)
-    if now - last < TICKET_COOLDOWN:
-        return int(TICKET_COOLDOWN - (now - last))
-    user_last_ticket[user_id] = now
-    return 0
-
-
-def contains_links(text):
-    blocked = ["http", "https", "t.me", "www.", ".com"]
-    return any(word in text.lower() for word in blocked)
-
-
-# ================== ПЕРЕВОДЫ ==================
-
-translations = {
-    "ru": {
-        "menu": "🍽 Меню",
-        "sales": "🎁 Акции",
-        "problem": "🚫 Проблема",
-        "suggestion": "💡 Предложение",
-        "cancel": "❌ Отмена",
-        "choose_day": "Выберите день недели:",
-        "no_sales": "😢 Акций сейчас нет.",
-        "write_problem": "Опишите проблему. Фото можно прикрепить 📷",
-        "write_suggestion": "Напишите предложение. Фото можно прикрепить 📷",
-        "ticket_sent": "✅ Заявка отправлена!",
-        "cooldown": "⏳ Подождите {} сек.",
-        "spam": "⚠ Не так быстро.",
-        "too_long": "⚠ До 1000 символов.",
-        "links_blocked": "🚫 Ссылки запрещены.",
-        "cancelled": "❌ Действие отменено.",
-        "main_menu": "Главное меню:"
-    },
-    "en": {
-        "menu": "🍽 Menu",
-        "sales": "🎁 Promotions",
-        "problem": "🚫 Problem",
-        "suggestion": "💡 Suggestion",
-        "cancel": "❌ Cancel",
-        "choose_day": "Choose a day:",
-        "no_sales": "😢 No promotions now.",
-        "write_problem": "Describe the problem. Photo optional 📷",
-        "write_suggestion": "Write your suggestion. Photo optional 📷",
-        "ticket_sent": "✅ Ticket sent!",
-        "cooldown": "⏳ Wait {} sec.",
-        "spam": "⚠ Too fast.",
-        "too_long": "⚠ Max 1000 characters.",
-        "links_blocked": "🚫 Links are not allowed.",
-        "cancelled": "❌ Action cancelled.",
-        "main_menu": "Main menu:"
-    }
-}
-
-
-days = {
-    "ru": {
-        "Понедельник": "Monday",
-        "Вторник": "Tuesday",
-        "Среда": "Wednesday",
-        "Четверг": "Thursday",
-        "Пятница": "Friday",
-        "Суббота": "Saturday",
-        "Воскресенье": "Sunday"
-    },
-    "en": {
-        "Monday": "Monday",
-        "Tuesday": "Tuesday",
-        "Wednesday": "Wednesday",
-        "Thursday": "Thursday",
-        "Friday": "Friday",
-        "Saturday": "Saturday",
-        "Sunday": "Sunday"
-    }
-}
-
+# ================= МЕНЮ =================
 
 menu_data = {
-    "Monday": "Menu for Monday",
-    "Tuesday": "Menu for Tuesday",
-    "Wednesday": "Menu for Wednesday",
-    "Thursday": "Menu for Thursday",
-    "Friday": "Menu for Friday",
-    "Saturday": "Menu for Saturday",
-    "Sunday": "Menu for Sunday"
+    "Понедельник": "Меню на понедельник",
+    "Вторник": "Меню на вторник",
+    "Среда": "Меню на среду",
+    "Четверг": "Меню на четверг",
+    "Пятница": "Меню на пятницу",
+    "Суббота": "Меню на субботу",
+    "Воскресенье": "Меню на воскресенье"
 }
 
-
-# ================== СОСТОЯНИЯ ==================
+# ================= СОСТОЯНИЯ =================
 
 class Form(StatesGroup):
-    language = State()
     description = State()
+    edit_day = State()
+    edit_text = State()
 
+# ================= ГЛАВНОЕ МЕНЮ =================
 
-# ================== ВСПОМОГАТЕЛЬНЫЕ ==================
+async def show_main_menu(message: Message):
+    buttons = [
+        [KeyboardButton(text="🍽 Меню")],
+        [KeyboardButton(text="🚫 Проблема")],
+        [KeyboardButton(text="💡 Предложение")]
+    ]
 
-async def get_lang(state: FSMContext):
-    data = await state.get_data()
-    return data.get("lang", "ru")
-
-
-async def show_main_menu(message: Message, state: FSMContext):
-    lang = await get_lang(state)
+    if message.from_user.id == ADMIN_ID:
+        buttons.append([KeyboardButton(text="🛠 Админ панель")])
 
     keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=translations[lang]["menu"])],
-            [KeyboardButton(text=translations[lang]["sales"])],
-            [KeyboardButton(text=translations[lang]["problem"])],
-            [KeyboardButton(text=translations[lang]["suggestion"])]
-        ],
+        keyboard=buttons,
         resize_keyboard=True
     )
 
-    await message.answer(translations[lang]["main_menu"], reply_markup=keyboard)
+    await message.answer("Главное меню:", reply_markup=keyboard)
 
-
-# ================== START ==================
+# ================= START =================
 
 @dp.message(Command("start"))
-async def start(message: Message, state: FSMContext):
+async def start(message: Message):
+    await show_main_menu(message)
+
+# ================= МЕНЮ ДЛЯ КЛИЕНТА =================
+
+@dp.message(lambda m: m.text == "🍽 Меню")
+async def show_days(message: Message):
     keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🇷🇺 Русский")],
-            [KeyboardButton(text="🇬🇧 English")]
-        ],
+        keyboard=[[KeyboardButton(text=day)] for day in menu_data],
         resize_keyboard=True
     )
-    await state.set_state(Form.language)
-    await message.answer("Choose language / Выберите язык:", reply_markup=keyboard)
+    await message.answer("Выберите день:", reply_markup=keyboard)
 
+@dp.message(lambda m: m.text in menu_data)
+async def show_menu(message: Message):
+    await message.answer(menu_data[message.text])
+    await show_main_menu(message)
 
-@dp.message(Form.language)
-async def set_language(message: Message, state: FSMContext):
-    if message.text == "🇷🇺 Русский":
-        await state.update_data(lang="ru")
-    elif message.text == "🇬🇧 English":
-        await state.update_data(lang="en")
-    else:
-        return
+# ================= СОЗДАНИЕ ЗАЯВКИ =================
 
-    await state.clear()
-    await show_main_menu(message, state)
-
-
-# ================== ПРИЁМ ЗАЯВОК (ВАЖНО — ВЫШЕ main_handler) ==================
+@dp.message(lambda m: m.text in ["🚫 Проблема", "💡 Предложение"])
+async def create_ticket(message: Message, state: FSMContext):
+    await state.set_state(Form.description)
+    await state.update_data(category=message.text)
+    await message.answer("Опишите ситуацию. Можно прикрепить фото.")
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
     global ticket_counter
 
+    ticket_counter += 1
     user_id = message.from_user.id
-    lang = await get_lang(state)
-
-    cooldown = ticket_cooldown(user_id)
-    if cooldown > 0:
-        await message.answer(translations[lang]["cooldown"].format(cooldown))
-        return
-
     text = message.text or message.caption or ""
 
-    if len(text) > 1000:
-        await message.answer(translations[lang]["too_long"])
-        return
+    tickets[ticket_counter] = {
+        "user_id": user_id,
+        "manager_id": None,
+        "status": "open"
+    }
 
-    if contains_links(text):
-        await message.answer(translations[lang]["links_blocked"])
-        return
-
-    data = await state.get_data()
-    category = data.get("category", "Unknown")
-
-    ticket_counter += 1
-
-    username = message.from_user.username or "No username"
-
-    ticket_text = f"""
-📩 Ticket #{ticket_counter}
-👤 @{username}
-🆔 {user_id}
-📂 {category}
-
-{text}
-"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=f"Ответить #{ticket_counter}")],
+            [KeyboardButton(text=f"Закрыть #{ticket_counter}")]
+        ],
+        resize_keyboard=True
+    )
 
     for manager in MANAGER_IDS:
-        try:
-            await bot.send_message(manager, ticket_text)
-        except Exception as e:
-            print("ERROR SENDING:", e)
+        if message.photo:
+            await bot.send_photo(
+                manager,
+                message.photo[-1].file_id,
+                caption=f"📩 Новая заявка #{ticket_counter}\n\n{text}",
+                reply_markup=keyboard
+            )
+        else:
+            await bot.send_message(
+                manager,
+                f"📩 Новая заявка #{ticket_counter}\n\n{text}",
+                reply_markup=keyboard
+            )
 
-    await message.answer(translations[lang]["ticket_sent"])
+    await message.answer("✅ Заявка отправлена!")
     await state.clear()
-    await show_main_menu(message, state)
+    await show_main_menu(message)
 
+# ================= УПРАВЛЕНИЕ ЗАЯВКОЙ =================
 
-# ================== ОСНОВНОЙ ОБРАБОТЧИК ==================
+@dp.message(lambda m: m.text and m.text.startswith("Ответить #"))
+async def manager_connect(message: Message):
+    if message.from_user.id not in MANAGER_IDS:
+        return
+
+    ticket_id = int(message.text.split("#")[1])
+
+    if ticket_id in tickets and tickets[ticket_id]["status"] == "open":
+        tickets[ticket_id]["manager_id"] = message.from_user.id
+        await message.answer(f"🟢 Вы подключились к заявке #{ticket_id}")
+
+@dp.message(lambda m: m.text and m.text.startswith("Закрыть #"))
+async def close_ticket(message: Message):
+    if message.from_user.id not in MANAGER_IDS:
+        return
+
+    ticket_id = int(message.text.split("#")[1])
+
+    if ticket_id in tickets:
+        tickets[ticket_id]["status"] = "closed"
+        user_id = tickets[ticket_id]["user_id"]
+
+        await bot.send_message(user_id, "✅ Ваша заявка закрыта.")
+        await message.answer(f"🔴 Заявка #{ticket_id} закрыта.")
+
+# ================= ЖИВОЙ ЧАТ =================
 
 @dp.message()
-async def main_handler(message: Message, state: FSMContext):
+async def live_chat(message: Message):
     user_id = message.from_user.id
-    lang = await get_lang(state)
 
-    if is_spam(user_id):
-        await message.answer(translations[lang]["spam"])
+    # Клиент пишет
+    for ticket_id, data in tickets.items():
+        if data["user_id"] == user_id and data["status"] == "open":
+            manager_id = data["manager_id"]
+            if manager_id:
+                if message.photo:
+                    await bot.send_photo(manager_id, message.photo[-1].file_id)
+                else:
+                    await bot.send_message(manager_id, f"💬 #{ticket_id} Клиент:\n{message.text}")
+            return
+
+    # Менеджер пишет
+    if user_id in MANAGER_IDS:
+        for ticket_id, data in tickets.items():
+            if data["manager_id"] == user_id and data["status"] == "open":
+                client_id = data["user_id"]
+                if message.photo:
+                    await bot.send_photo(client_id, message.photo[-1].file_id)
+                else:
+                    await bot.send_message(client_id, f"💬 Менеджер:\n{message.text}")
+                return
+
+# ================= АДМИН ПАНЕЛЬ =================
+
+@dp.message(lambda m: m.text == "🛠 Админ панель")
+async def admin_panel(message: Message):
+    if message.from_user.id != ADMIN_ID:
         return
 
-    text = message.text
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📅 Редактировать меню")],
+            [KeyboardButton(text="⬅ Назад")]
+        ],
+        resize_keyboard=True
+    )
 
-    if text == translations[lang]["menu"]:
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=day)] for day in days[lang]],
-            resize_keyboard=True
-        )
-        await message.answer(translations[lang]["choose_day"], reply_markup=keyboard)
+    await message.answer("🛠 Панель администратора", reply_markup=keyboard)
+
+@dp.message(lambda m: m.text == "📅 Редактировать меню")
+async def edit_menu(message: Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
         return
 
-    if text in days[lang]:
-        eng_day = days[lang][text]
-        await message.answer(menu_data[eng_day])
-        await show_main_menu(message, state)
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=day)] for day in menu_data],
+        resize_keyboard=True
+    )
+
+    await state.set_state(Form.edit_day)
+    await message.answer("Выберите день:", reply_markup=keyboard)
+
+@dp.message(Form.edit_day)
+async def choose_day(message: Message, state: FSMContext):
+    if message.text not in menu_data:
         return
 
-    if text == translations[lang]["sales"]:
-        await message.answer(translations[lang]["no_sales"])
-        await show_main_menu(message, state)
-        return
+    await state.update_data(edit_day=message.text)
+    await state.set_state(Form.edit_text)
+    await message.answer(f"Введите новый текст для {message.text}")
 
-    if text == translations[lang]["problem"]:
-        await state.update_data(category="Problem")
-        await state.set_state(Form.description)
-        await message.answer(translations[lang]["write_problem"])
-        return
+@dp.message(Form.edit_text)
+async def save_menu(message: Message, state: FSMContext):
+    data = await state.get_data()
+    day = data.get("edit_day")
 
-    if text == translations[lang]["suggestion"]:
-        await state.update_data(category="Suggestion")
-        await state.set_state(Form.description)
-        await message.answer(translations[lang]["write_suggestion"])
-        return
+    menu_data[day] = message.text
 
+    await message.answer(f"✅ Меню на {day} обновлено")
+    await state.clear()
+    await show_main_menu(message)
 
-# ================== ЗАПУСК ==================
+@dp.message(lambda m: m.text == "⬅ Назад")
+async def back(message: Message, state: FSMContext):
+    await state.clear()
+    await show_main_menu(message)
+
+# ================= ЗАПУСК =================
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    async def main():
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
-
     asyncio.run(main())
