@@ -39,7 +39,7 @@ menu_data = {
     "Воскресенье": "Меню на воскресенье"
 }
 
-promo_text = "🔥 Сегодня специальных акций нет."
+promo_text = "🔥 Сегодня акций нет."
 
 # ================= СОСТОЯНИЯ =================
 
@@ -71,16 +71,6 @@ def back_kb():
         resize_keyboard=True
     )
 
-def manage_kb():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📅 Редактировать меню")],
-            [KeyboardButton(text="🔥 Редактировать акции")],
-            [KeyboardButton(text="⬅ Назад")]
-        ],
-        resize_keyboard=True
-    )
-
 def ticket_actions_kb(tid):
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -97,114 +87,43 @@ def ticket_actions_kb(tid):
 async def start(message: Message):
     await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
 
-# ================= НАЗАД =================
-
-@dp.message(F.text == "⬅ Назад")
-async def back(message: Message, state: FSMContext):
-    await state.clear()
-    active_manager_ticket.pop(message.from_user.id, None)
-    await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
-
-# ================= МЕНЮ =================
-
-@dp.message(StateFilter(None), F.text == "🍽 Меню")
-async def show_days(message: Message):
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=day)] for day in menu_data] +
-                 [[KeyboardButton(text="⬅ Назад")]],
-        resize_keyboard=True
-    )
-    await message.answer("Выберите день:", reply_markup=kb)
-
-@dp.message(StateFilter(None), F.text.in_(menu_data.keys()))
-async def show_menu(message: Message):
-    await message.answer(menu_data[message.text])
-
-# ================= АКЦИИ =================
-
-@dp.message(StateFilter(None), F.text == "🔥 Акции")
-async def show_promo(message: Message):
-    await message.answer(promo_text, reply_markup=back_kb())
-
-# ================= УПРАВЛЕНИЕ =================
-
-@dp.message(StateFilter(None), F.text == "⚙ Управление")
-async def manage_panel(message: Message):
-    if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("Панель управления:", reply_markup=manage_kb())
-
-# ================= РЕДАКТИРОВАНИЕ МЕНЮ =================
-
-@dp.message(StateFilter(None), F.text == "📅 Редактировать меню")
-async def edit_menu_start(message: Message, state: FSMContext):
-    await state.set_state(Form.edit_day)
-
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=day)] for day in menu_data] +
-                 [[KeyboardButton(text="❌ Отмена")]],
-        resize_keyboard=True
-    )
-
-    await message.answer("Выберите день:", reply_markup=kb)
-
-@dp.message(Form.edit_day)
-async def choose_day(message: Message, state: FSMContext):
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
-        return
-
-    if message.text not in menu_data:
-        return
-
-    await state.update_data(day=message.text)
-    await state.set_state(Form.edit_menu_text)
-    await message.answer("Введите новый текст меню:", reply_markup=back_kb())
-
-@dp.message(Form.edit_menu_text)
-async def save_menu(message: Message, state: FSMContext):
-    data = await state.get_data()
-    menu_data[data["day"]] = message.text
-
-    await state.clear()
-    await message.answer("✅ Меню обновлено.", reply_markup=main_kb(message.from_user.id))
-
-# ================= РЕДАКТИРОВАНИЕ АКЦИЙ =================
-
-@dp.message(StateFilter(None), F.text == "🔥 Редактировать акции")
-async def edit_promo_start(message: Message, state: FSMContext):
-    await state.set_state(Form.edit_promo)
-    await message.answer("Введите новый текст акции:", reply_markup=back_kb())
-
-@dp.message(Form.edit_promo)
-async def save_promo(message: Message, state: FSMContext):
-    global promo_text
-    promo_text = message.text
-
-    await state.clear()
-    await message.answer("✅ Акции обновлены.", reply_markup=main_kb(message.from_user.id))
-
 # ================= СОЗДАНИЕ ЗАЯВКИ =================
 
 @dp.message(StateFilter(None), F.text.in_(["🚫 Проблема", "💡 Предложение"]))
 async def create_ticket(message: Message, state: FSMContext):
     await state.set_state(Form.description)
-    await message.answer("Опишите ситуацию:", reply_markup=back_kb())
+    await message.answer(
+        "Опишите ситуацию.\nВы можете отправить текст или фото с подписью.",
+        reply_markup=back_kb()
+    )
+
+# ================= ПРИЁМ ЗАЯВКИ (ТЕКСТ ИЛИ ФОТО) =================
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
     global ticket_counter
 
     ticket_counter += 1
+
     tickets[ticket_counter] = {
         "user_id": message.from_user.id,
         "manager_id": None,
         "status": "open"
     }
 
+    # Уведомляем менеджеров
     for manager in MANAGER_IDS:
-        await bot.send_message(manager, f"📩 Новая заявка #{ticket_counter}\n\n{message.text}")
+        if message.photo:
+            await bot.send_photo(
+                manager,
+                photo=message.photo[-1].file_id,
+                caption=f"📩 Новая заявка #{ticket_counter}\n\n{message.caption or ''}"
+            )
+        else:
+            await bot.send_message(
+                manager,
+                f"📩 Новая заявка #{ticket_counter}\n\n{message.text}"
+            )
 
     await state.clear()
     await message.answer("✅ Заявка отправлена!", reply_markup=main_kb(message.from_user.id))
@@ -230,9 +149,8 @@ async def show_tickets(message: Message):
 @dp.message(F.text.startswith("Заявка #"))
 async def open_ticket(message: Message):
     tid = int(message.text.split("#")[1])
-    if tid not in tickets or tickets[tid]["status"] != "open":
+    if tid not in tickets:
         return
-
     await message.answer(f"Заявка #{tid}", reply_markup=ticket_actions_kb(tid))
 
 @dp.message(F.text.startswith("▶ Ответить #"))
@@ -247,29 +165,52 @@ async def close_ticket(message: Message):
     tid = int(message.text.split("#")[1])
     tickets[tid]["status"] = "closed"
 
-    await bot.send_message(tickets[tid]["user_id"], f"✅ Заявка #{tid} закрыта.")
+    await bot.send_message(
+        tickets[tid]["user_id"],
+        f"✅ Заявка #{tid} закрыта."
+    )
 
     active_manager_ticket.pop(message.from_user.id, None)
     await message.answer("Заявка закрыта.", reply_markup=main_kb(message.from_user.id))
 
-# ================= LIVE CHAT =================
+# ================= LIVE CHAT (С ФОТО) =================
 
 @dp.message()
 async def chat_router(message: Message):
     user_id = message.from_user.id
 
-    # клиент → менеджер
+    # Клиент пишет
     for tid, data in tickets.items():
         if data["user_id"] == user_id and data["status"] == "open":
             if data["manager_id"]:
-                await bot.send_message(data["manager_id"], f"💬 #{tid} Клиент:\n{message.text}")
+                if message.photo:
+                    await bot.send_photo(
+                        data["manager_id"],
+                        photo=message.photo[-1].file_id,
+                        caption=f"💬 #{tid} Клиент:\n{message.caption or ''}"
+                    )
+                else:
+                    await bot.send_message(
+                        data["manager_id"],
+                        f"💬 #{tid} Клиент:\n{message.text}"
+                    )
             return
 
-    # менеджер → клиент
+    # Менеджер пишет
     if user_id in active_manager_ticket:
         tid = active_manager_ticket[user_id]
         if tickets[tid]["status"] == "open":
-            await bot.send_message(tickets[tid]["user_id"], f"💬 Менеджер:\n{message.text}")
+            if message.photo:
+                await bot.send_photo(
+                    tickets[tid]["user_id"],
+                    photo=message.photo[-1].file_id,
+                    caption=f"💬 Менеджер:\n{message.caption or ''}"
+                )
+            else:
+                await bot.send_message(
+                    tickets[tid]["user_id"],
+                    f"💬 Менеджер:\n{message.text}"
+                )
 
 # ================= ЗАПУСК =================
 
