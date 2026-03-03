@@ -8,8 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
-TOKEN = os.getenv("TOKEN")
-print("TOKEN:", TOKEN)
+print("ALL ENV:", dict(os.environ))
 ADMIN_ID = 1896626491
 MANAGER_IDS = [1896626491]
 
