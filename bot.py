@@ -50,6 +50,9 @@ async def show_main_menu(message: Message):
         [KeyboardButton(text="💡 Предложение")]
     ]
 
+    if message.from_user.id in MANAGER_IDS:
+        buttons.append([KeyboardButton(text="📩 Заявки")])
+
     if message.from_user.id == ADMIN_ID:
         buttons.append([KeyboardButton(text="🛠 Админ панель")])
 
@@ -66,7 +69,7 @@ async def show_main_menu(message: Message):
 async def start(message: Message):
     await show_main_menu(message)
 
-# ================= МЕНЮ ДЛЯ КЛИЕНТА =================
+# ================= МЕНЮ =================
 
 @dp.message(lambda m: m.text == "🍽 Меню")
 async def show_days(message: Message):
@@ -86,7 +89,6 @@ async def show_menu(message: Message):
 @dp.message(lambda m: m.text in ["🚫 Проблема", "💡 Предложение"])
 async def create_ticket(message: Message, state: FSMContext):
     await state.set_state(Form.description)
-    await state.update_data(category=message.text)
     await message.answer("Опишите ситуацию. Можно прикрепить фото.")
 
 @dp.message(Form.description)
@@ -130,7 +132,33 @@ async def receive_ticket(message: Message, state: FSMContext):
     await state.clear()
     await show_main_menu(message)
 
-# ================= УПРАВЛЕНИЕ ЗАЯВКОЙ =================
+# ================= СПИСОК ЗАЯВОК ДЛЯ МЕНЕДЖЕРА =================
+
+@dp.message(lambda m: m.text == "📩 Заявки")
+async def manager_tickets_list(message: Message):
+    if message.from_user.id not in MANAGER_IDS:
+        return
+
+    open_tickets = [
+        tid for tid, data in tickets.items()
+        if data["status"] == "open"
+    ]
+
+    if not open_tickets:
+        await message.answer("Нет открытых заявок.")
+        return
+
+    text = "📩 Открытые заявки:\n\n"
+    for tid in open_tickets:
+        manager = tickets[tid]["manager_id"]
+        if manager:
+            text += f"#{tid} (в работе)\n"
+        else:
+            text += f"#{tid} (свободна)\n"
+
+    await message.answer(text)
+
+# ================= ПОДКЛЮЧЕНИЕ К ЗАЯВКЕ =================
 
 @dp.message(lambda m: m.text and m.text.startswith("Ответить #"))
 async def manager_connect(message: Message):
@@ -142,6 +170,8 @@ async def manager_connect(message: Message):
     if ticket_id in tickets and tickets[ticket_id]["status"] == "open":
         tickets[ticket_id]["manager_id"] = message.from_user.id
         await message.answer(f"🟢 Вы подключились к заявке #{ticket_id}")
+
+# ================= ЗАКРЫТИЕ =================
 
 @dp.message(lambda m: m.text and m.text.startswith("Закрыть #"))
 async def close_ticket(message: Message):
@@ -156,34 +186,6 @@ async def close_ticket(message: Message):
 
         await bot.send_message(user_id, "✅ Ваша заявка закрыта.")
         await message.answer(f"🔴 Заявка #{ticket_id} закрыта.")
-
-# ================= ЖИВОЙ ЧАТ =================
-
-@dp.message()
-async def live_chat(message: Message):
-    user_id = message.from_user.id
-
-    # Клиент пишет
-    for ticket_id, data in tickets.items():
-        if data["user_id"] == user_id and data["status"] == "open":
-            manager_id = data["manager_id"]
-            if manager_id:
-                if message.photo:
-                    await bot.send_photo(manager_id, message.photo[-1].file_id)
-                else:
-                    await bot.send_message(manager_id, f"💬 #{ticket_id} Клиент:\n{message.text}")
-            return
-
-    # Менеджер пишет
-    if user_id in MANAGER_IDS:
-        for ticket_id, data in tickets.items():
-            if data["manager_id"] == user_id and data["status"] == "open":
-                client_id = data["user_id"]
-                if message.photo:
-                    await bot.send_photo(client_id, message.photo[-1].file_id)
-                else:
-                    await bot.send_message(client_id, f"💬 Менеджер:\n{message.text}")
-                return
 
 # ================= АДМИН ПАНЕЛЬ =================
 
@@ -239,6 +241,55 @@ async def save_menu(message: Message, state: FSMContext):
 async def back(message: Message, state: FSMContext):
     await state.clear()
     await show_main_menu(message)
+
+# ================= ЖИВОЙ ЧАТ (ВСЕГДА ПОСЛЕДНИЙ) =================
+
+@dp.message()
+async def live_chat(message: Message):
+    text = message.text or ""
+
+    blocked = [
+        "🍽 Меню",
+        "🚫 Проблема",
+        "💡 Предложение",
+        "📩 Заявки",
+        "🛠 Админ панель",
+        "📅 Редактировать меню",
+        "⬅ Назад"
+    ] + list(menu_data.keys())
+
+    if text in blocked:
+        return
+
+    user_id = message.from_user.id
+
+    # Клиент
+    for ticket_id, data in tickets.items():
+        if data["user_id"] == user_id and data["status"] == "open":
+            manager_id = data["manager_id"]
+            if manager_id:
+                if message.photo:
+                    await bot.send_photo(manager_id, message.photo[-1].file_id)
+                else:
+                    await bot.send_message(
+                        manager_id,
+                        f"💬 #{ticket_id} Клиент:\n{message.text}"
+                    )
+            return
+
+    # Менеджер
+    if user_id in MANAGER_IDS:
+        for ticket_id, data in tickets.items():
+            if data["manager_id"] == user_id and data["status"] == "open":
+                client_id = data["user_id"]
+                if message.photo:
+                    await bot.send_photo(client_id, message.photo[-1].file_id)
+                else:
+                    await bot.send_message(
+                        client_id,
+                        f"💬 Менеджер:\n{message.text}"
+                    )
+                return
 
 # ================= ЗАПУСК =================
 
