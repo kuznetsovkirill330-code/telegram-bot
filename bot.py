@@ -11,7 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # ================== НАСТРОЙКИ ==================
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = "8740554601:AAGB4AbrvPSYMd5dZTASkfvX2d3h23gV1QA"
 
 if not TOKEN:
     raise ValueError("TOKEN")
