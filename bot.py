@@ -230,7 +230,86 @@ async def receive_ticket(message: Message, state: FSMContext):
 
     await state.clear()
     await message.answer("✅ Заявка отправлена!", reply_markup=main_kb(message.from_user.id))
+    
+# ================= ЗАЯВКИ ДЛЯ МЕНЕДЖЕРА =================
 
+@dp.message(StateFilter(None), F.text == "📩 Заявки")
+async def show_tickets(message: Message):
+    if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
+        return
+
+    open_tickets = [tid for tid, t in tickets.items() if t["status"] == "open"]
+
+    if not open_tickets:
+        await message.answer("Нет открытых заявок.", reply_markup=main_kb(message.from_user.id))
+        return
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f"Заявка #{tid}")] for tid in open_tickets] +
+                 [[KeyboardButton(text="⬅ Назад")]],
+        resize_keyboard=True
+    )
+
+    await message.answer("Открытые заявки:", reply_markup=kb)
+
+
+@dp.message(StateFilter(None), F.text.startswith("Заявка #"))
+async def open_ticket(message: Message):
+    if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        tid = int(message.text.split("#")[1])
+    except:
+        return
+
+    if tid not in tickets or tickets[tid]["status"] != "open":
+        await message.answer("Заявка не найдена.")
+        return
+
+    await message.answer(
+        f"Заявка #{tid}",
+        reply_markup=ticket_actions_kb(tid)
+    )
+
+
+@dp.message(StateFilter(None), F.text.startswith("▶ Ответить #"))
+async def answer_ticket(message: Message):
+    try:
+        tid = int(message.text.split("#")[1])
+    except:
+        return
+
+    if tid not in tickets or tickets[tid]["status"] != "open":
+        return
+
+    tickets[tid]["manager_id"] = message.from_user.id
+    active_manager_ticket[message.from_user.id] = tid
+
+    await message.answer(f"Вы подключились к заявке #{tid}")
+
+
+@dp.message(StateFilter(None), F.text.startswith("🔴 Закрыть #"))
+async def close_ticket(message: Message):
+    try:
+        tid = int(message.text.split("#")[1])
+    except:
+        return
+
+    if tid not in tickets:
+        return
+
+    tickets[tid]["status"] = "closed"
+
+    await bot.send_message(
+        tickets[tid]["user_id"],
+        f"✅ Заявка #{tid} закрыта."
+    )
+
+    active_manager_ticket.pop(message.from_user.id, None)
+
+    await message.answer("Заявка закрыта.", reply_markup=main_kb(message.from_user.id))
+    
 # ================= LIVE CHAT =================
 
 @dp.message()
