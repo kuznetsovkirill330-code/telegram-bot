@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 TOKEN = os.getenv("TOKEN")
 
 if not TOKEN:
-    raise ValueError("TOKEN not found in environment variables")
+    raise ValueError("TOKEN")
 
 ADMIN_ID = 1896626491
 MANAGER_IDS = [1896626491]
