@@ -8,7 +8,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
-print("ALL ENV:", dict(os.environ))
+
+# ================== НАСТРОЙКИ ==================
+
+TOKEN = os.getenv("TOKEN")
+
+if not TOKEN:
+    raise ValueError("TOKEN not found in environment variables")
+
 ADMIN_ID = 1896626491
 MANAGER_IDS = [1896626491]
 
@@ -16,6 +23,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 ticket_counter = 0
+
 
 # ================== АНТИСПАМ ==================
 
@@ -90,6 +98,7 @@ translations = {
     }
 }
 
+
 days = {
     "ru": {
         "Понедельник": "Monday",
@@ -111,6 +120,7 @@ days = {
     }
 }
 
+
 menu_data = {
     "Monday": "Menu for Monday",
     "Tuesday": "Menu for Tuesday",
@@ -127,7 +137,6 @@ menu_data = {
 class Form(StatesGroup):
     language = State()
     description = State()
-    edit_menu = State()
 
 
 # ================== ВСПОМОГАТЕЛЬНЫЕ ==================
@@ -177,7 +186,7 @@ async def set_language(message: Message, state: FSMContext):
     else:
         return
 
-    await state.set_state(None)  # состояние сбрасываем, язык сохраняется
+    await state.set_state(None)
     await show_main_menu(message, state)
 
 
@@ -186,11 +195,13 @@ async def set_language(message: Message, state: FSMContext):
 @dp.message()
 async def main_handler(message: Message, state: FSMContext):
 
-    if is_spam(message.from_user.id):
-        await message.answer((await get_lang(state) == "ru" and translations["ru"]["spam"]) or translations["en"]["spam"])
+    user_id = message.from_user.id
+    lang = await get_lang(state)
+
+    if is_spam(user_id):
+        await message.answer(translations[lang]["spam"])
         return
 
-    lang = await get_lang(state)
     text = message.text
 
     if text == translations[lang]["cancel"]:
@@ -221,19 +232,25 @@ async def main_handler(message: Message, state: FSMContext):
     if text == translations[lang]["problem"]:
         await state.update_data(category="Problem")
         await state.set_state(Form.description)
-        await message.answer(translations[lang]["write_problem"],
-                             reply_markup=ReplyKeyboardMarkup(
-                                 keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
-                                 resize_keyboard=True))
+        await message.answer(
+            translations[lang]["write_problem"],
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
+                resize_keyboard=True
+            )
+        )
         return
 
     if text == translations[lang]["suggestion"]:
         await state.update_data(category="Suggestion")
         await state.set_state(Form.description)
-        await message.answer(translations[lang]["write_suggestion"],
-                             reply_markup=ReplyKeyboardMarkup(
-                                 keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
-                                 resize_keyboard=True))
+        await message.answer(
+            translations[lang]["write_suggestion"],
+            reply_markup=ReplyKeyboardMarkup(
+                keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
+                resize_keyboard=True
+            )
+        )
         return
 
 
