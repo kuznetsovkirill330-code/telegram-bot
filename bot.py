@@ -1,7 +1,7 @@
 import os
 import time
 import asyncio
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -11,10 +11,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # ================== НАСТРОЙКИ ==================
 
-TOKEN = "8740554601:AAGB4AbrvPSYMd5dZTASkfvX2d3h23gV1QA"
-
+TOKEN = os.getenv("TOKEN")
 if not TOKEN:
-    raise ValueError("TOKEN")
+    raise ValueError("8740554601:AAGB4AbrvPSYMd5dZTASkfvX2d3h23gV1QA")
 
 ADMIN_ID = 1896626491
 MANAGER_IDS = [1896626491]
@@ -53,7 +52,7 @@ def ticket_cooldown(user_id):
 
 
 def contains_links(text):
-    blocked = ["http", "https", "t.me", "www.", ".com", "@"]
+    blocked = ["http", "https", "t.me", "www.", ".com"]
     return any(word in text.lower() for word in blocked)
 
 
@@ -186,75 +185,11 @@ async def set_language(message: Message, state: FSMContext):
     else:
         return
 
-    await state.set_state(None)
+    await state.clear()
     await show_main_menu(message, state)
 
 
-# ================== ОСНОВНОЙ ОБРАБОТЧИК ==================
-
-@dp.message()
-async def main_handler(message: Message, state: FSMContext):
-
-    user_id = message.from_user.id
-    lang = await get_lang(state)
-
-    if is_spam(user_id):
-        await message.answer(translations[lang]["spam"])
-        return
-
-    text = message.text
-
-    if text == translations[lang]["cancel"]:
-        await state.set_state(None)
-        await message.answer(translations[lang]["cancelled"])
-        await show_main_menu(message, state)
-        return
-
-    if text == translations[lang]["menu"]:
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=day)] for day in days[lang]],
-            resize_keyboard=True
-        )
-        await message.answer(translations[lang]["choose_day"], reply_markup=keyboard)
-        return
-
-    if text in days[lang]:
-        eng_day = days[lang][text]
-        await message.answer(menu_data[eng_day])
-        await show_main_menu(message, state)
-        return
-
-    if text == translations[lang]["sales"]:
-        await message.answer(translations[lang]["no_sales"])
-        await show_main_menu(message, state)
-        return
-
-    if text == translations[lang]["problem"]:
-        await state.update_data(category="Problem")
-        await state.set_state(Form.description)
-        await message.answer(
-            translations[lang]["write_problem"],
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
-                resize_keyboard=True
-            )
-        )
-        return
-
-    if text == translations[lang]["suggestion"]:
-        await state.update_data(category="Suggestion")
-        await state.set_state(Form.description)
-        await message.answer(
-            translations[lang]["write_suggestion"],
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[[KeyboardButton(text=translations[lang]["cancel"])]],
-                resize_keyboard=True
-            )
-        )
-        return
-
-
-# ================== ПРИЁМ ЗАЯВОК ==================
+# ================== ПРИЁМ ЗАЯВОК (ВАЖНО — ВЫШЕ main_handler) ==================
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
@@ -283,11 +218,11 @@ async def receive_ticket(message: Message, state: FSMContext):
 
     ticket_counter += 1
 
-    photo = message.photo[-1].file_id if message.photo else None
+    username = message.from_user.username or "No username"
 
     ticket_text = f"""
 📩 Ticket #{ticket_counter}
-👤 @{message.from_user.username}
+👤 @{username}
 🆔 {user_id}
 📂 {category}
 
@@ -295,17 +230,66 @@ async def receive_ticket(message: Message, state: FSMContext):
 """
 
     for manager in MANAGER_IDS:
-        if photo:
-            await bot.send_photo(manager, photo=photo, caption=ticket_text)
-        else:
+        try:
             await bot.send_message(manager, ticket_text)
+        except Exception as e:
+            print("ERROR SENDING:", e)
 
     await message.answer(translations[lang]["ticket_sent"])
-    await state.set_state(None)
+    await state.clear()
     await show_main_menu(message, state)
+
+
+# ================== ОСНОВНОЙ ОБРАБОТЧИК ==================
+
+@dp.message()
+async def main_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+    lang = await get_lang(state)
+
+    if is_spam(user_id):
+        await message.answer(translations[lang]["spam"])
+        return
+
+    text = message.text
+
+    if text == translations[lang]["menu"]:
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=day)] for day in days[lang]],
+            resize_keyboard=True
+        )
+        await message.answer(translations[lang]["choose_day"], reply_markup=keyboard)
+        return
+
+    if text in days[lang]:
+        eng_day = days[lang][text]
+        await message.answer(menu_data[eng_day])
+        await show_main_menu(message, state)
+        return
+
+    if text == translations[lang]["sales"]:
+        await message.answer(translations[lang]["no_sales"])
+        await show_main_menu(message, state)
+        return
+
+    if text == translations[lang]["problem"]:
+        await state.update_data(category="Problem")
+        await state.set_state(Form.description)
+        await message.answer(translations[lang]["write_problem"])
+        return
+
+    if text == translations[lang]["suggestion"]:
+        await state.update_data(category="Suggestion")
+        await state.set_state(Form.description)
+        await message.answer(translations[lang]["write_suggestion"])
+        return
 
 
 # ================== ЗАПУСК ==================
 
 if __name__ == "__main__":
-    asyncio.run(dp.start_polling(bot))
+    async def main():
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot)
+
+    asyncio.run(main())
