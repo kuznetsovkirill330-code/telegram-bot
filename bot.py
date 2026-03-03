@@ -12,6 +12,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.storage.memory import MemoryStorage
 
+# ================= НАСТРОЙКИ =================
+
 TOKEN = os.getenv("TOKEN")
 if not TOKEN:
     raise ValueError("8740554601:AAGB4AbrvPSYMd5dZTASkfvX2d3h23gV1QA")
@@ -48,9 +50,9 @@ class Form(StatesGroup):
     edit_text = State()
     edit_promo = State()
 
-# ================= ГЛАВНОЕ МЕНЮ =================
+# ================= КЛАВИАТУРЫ =================
 
-async def show_main_menu(message: Message):
+def main_keyboard(user_id: int):
     buttons = [
         [KeyboardButton(text="🍽 Меню")],
         [KeyboardButton(text="🔥 Акции")],
@@ -58,27 +60,35 @@ async def show_main_menu(message: Message):
         [KeyboardButton(text="💡 Предложение")]
     ]
 
-    if message.from_user.id in MANAGER_IDS:
+    if user_id in MANAGER_IDS:
         buttons.append([KeyboardButton(text="📩 Заявки")])
 
-    if message.from_user.id in MANAGER_IDS or message.from_user.id == ADMIN_ID:
+    if user_id in MANAGER_IDS or user_id == ADMIN_ID:
         buttons.append([KeyboardButton(text="⚙ Управление")])
 
-    keyboard = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
-    await message.answer("Главное меню:", reply_markup=keyboard)
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+def manage_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📅 Редактировать меню")],
+            [KeyboardButton(text="🔥 Редактировать акции")],
+            [KeyboardButton(text="⬅ Назад")]
+        ],
+        resize_keyboard=True
+    )
 
 # ================= START =================
 
 @dp.message(Command("start"))
 async def start(message: Message):
-    await show_main_menu(message)
+    await message.answer("Главное меню:", reply_markup=main_keyboard(message.from_user.id))
 
 # ================= АКЦИИ =================
 
 @dp.message(StateFilter(None), F.text == "🔥 Акции")
 async def show_promo(message: Message):
     await message.answer(promo_text)
-    await show_main_menu(message)
 
 # ================= МЕНЮ =================
 
@@ -93,14 +103,14 @@ async def show_days(message: Message):
 @dp.message(StateFilter(None), F.text.in_(menu_data.keys()))
 async def show_menu(message: Message):
     await message.answer(menu_data[message.text])
-    await show_main_menu(message)
+    await message.answer("Главное меню:", reply_markup=main_keyboard(message.from_user.id))
 
 # ================= СОЗДАНИЕ ЗАЯВКИ =================
 
 @dp.message(StateFilter(None), F.text.in_(["🚫 Проблема", "💡 Предложение"]))
 async def create_ticket(message: Message, state: FSMContext):
     await state.set_state(Form.description)
-    await message.answer("Опишите ситуацию.\n\n❌ Отмена")
+    await message.answer("Опишите ситуацию.\n\nНапишите ❌ Отмена для выхода")
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
@@ -108,7 +118,7 @@ async def receive_ticket(message: Message, state: FSMContext):
 
     if message.text == "❌ Отмена":
         await state.clear()
-        await show_main_menu(message)
+        await message.answer("Главное меню:", reply_markup=main_keyboard(message.from_user.id))
         return
 
     ticket_counter += 1
@@ -134,9 +144,9 @@ async def receive_ticket(message: Message, state: FSMContext):
             reply_markup=keyboard
         )
 
-    await message.answer("✅ Заявка отправлена!")
+    await message.answer("✅ Заявка отправлена!",
+                         reply_markup=main_keyboard(message.from_user.id))
     await state.clear()
-    await show_main_menu(message)
 
 # ================= СПИСОК ЗАЯВОК =================
 
@@ -167,20 +177,15 @@ async def connect_ticket(message: Message):
 
     ticket_id = int(message.text.split("#")[1])
 
-    if ticket_id not in tickets:
-        return
-
-    if tickets[ticket_id]["status"] != "open":
-        await message.answer("Заявка уже закрыта.")
+    if ticket_id not in tickets or tickets[ticket_id]["status"] != "open":
+        await message.answer("Заявка недоступна.")
         return
 
     tickets[ticket_id]["manager_id"] = message.from_user.id
     active_manager_ticket[message.from_user.id] = ticket_id
 
-    await message.answer(
-        f"🟢 Вы подключились к заявке #{ticket_id}",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await message.answer(f"Вы подключились к заявке #{ticket_id}",
+                         reply_markup=ReplyKeyboardRemove())
 
     await bot.send_message(
         tickets[ticket_id]["user_id"],
@@ -210,35 +215,9 @@ async def close_ticket(message: Message):
     )
 
     await message.answer(
-        f"🔴 Заявка #{ticket_id} закрыта.",
-        reply_markup=ReplyKeyboardRemove()
+        f"Заявка #{ticket_id} закрыта.",
+        reply_markup=main_keyboard(message.from_user.id)
     )
-
-# ================= ЖИВОЙ ЧАТ =================
-
-@dp.message(StateFilter(None))
-async def live_chat(message: Message):
-    user_id = message.from_user.id
-
-    # Клиент
-    for tid, data in tickets.items():
-        if data["user_id"] == user_id and data["status"] == "open":
-            manager_id = data["manager_id"]
-            if manager_id:
-                await bot.send_message(
-                    manager_id,
-                    f"💬 #{tid} Клиент:\n{message.text}"
-                )
-            return
-
-    # Менеджер
-    if user_id in active_manager_ticket:
-        tid = active_manager_ticket[user_id]
-        if tickets[tid]["status"] == "open":
-            await bot.send_message(
-                tickets[tid]["user_id"],
-                f"💬 Менеджер:\n{message.text}"
-            )
 
 # ================= УПРАВЛЕНИЕ =================
 
@@ -247,16 +226,7 @@ async def manage_panel(message: Message):
     if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
         return
 
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="📅 Редактировать меню")],
-            [KeyboardButton(text="🔥 Редактировать акции")],
-            [KeyboardButton(text="⬅ Назад")]
-        ],
-        resize_keyboard=True
-    )
-
-    await message.answer("Панель управления:", reply_markup=keyboard)
+    await message.answer("Панель управления:", reply_markup=manage_keyboard())
 
 # ================= РЕДАКТИРОВАНИЕ МЕНЮ =================
 
@@ -276,7 +246,7 @@ async def edit_menu(message: Message, state: FSMContext):
 async def choose_day(message: Message, state: FSMContext):
     if message.text == "❌ Отмена":
         await state.clear()
-        await show_main_menu(message)
+        await message.answer("Главное меню:", reply_markup=main_keyboard(message.from_user.id))
         return
 
     await state.update_data(day=message.text)
@@ -286,13 +256,11 @@ async def choose_day(message: Message, state: FSMContext):
 @dp.message(Form.edit_text)
 async def save_menu(message: Message, state: FSMContext):
     data = await state.get_data()
-    day = data["day"]
+    menu_data[data["day"]] = message.text
 
-    menu_data[day] = message.text
-
-    await message.answer("Меню обновлено.")
     await state.clear()
-    await show_main_menu(message)
+    await message.answer("Меню обновлено.",
+                         reply_markup=main_keyboard(message.from_user.id))
 
 # ================= РЕДАКТИРОВАНИЕ АКЦИЙ =================
 
@@ -306,15 +274,46 @@ async def save_promo(message: Message, state: FSMContext):
     global promo_text
     promo_text = message.text
 
-    await message.answer("Акции обновлены.")
     await state.clear()
-    await show_main_menu(message)
+    await message.answer("Акции обновлены.",
+                         reply_markup=main_keyboard(message.from_user.id))
 
-# ================= НАЗАД =================
+# ================= LIVE CHAT =================
 
-@dp.message(StateFilter(None), F.text == "⬅ Назад")
-async def back(message: Message):
-    await show_main_menu(message)
+@dp.message(StateFilter(None))
+async def live_chat(message: Message):
+    user_id = message.from_user.id
+
+    # если это системная кнопка — игнор
+    system_buttons = [
+        "🍽 Меню", "🔥 Акции", "🚫 Проблема", "💡 Предложение",
+        "📩 Заявки", "⚙ Управление",
+        "📅 Редактировать меню", "🔥 Редактировать акции",
+        "⬅ Назад"
+    ]
+
+    if message.text in system_buttons:
+        return
+
+    # клиент
+    for tid, data in tickets.items():
+        if data["user_id"] == user_id and data["status"] == "open":
+            manager_id = data["manager_id"]
+            if manager_id:
+                await bot.send_message(
+                    manager_id,
+                    f"💬 #{tid} Клиент:\n{message.text}"
+                )
+            return
+
+    # менеджер
+    if user_id in active_manager_ticket:
+        tid = active_manager_ticket[user_id]
+        if tickets[tid]["status"] == "open":
+            await bot.send_message(
+                tickets[tid]["user_id"],
+                f"💬 Менеджер:\n{message.text}"
+            )
 
 # ================= ЗАПУСК =================
 
