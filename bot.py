@@ -1,11 +1,7 @@
 import os
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import (
-    Message,
-    ReplyKeyboardMarkup,
-    KeyboardButton
-)
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -45,9 +41,6 @@ promo_text = "🔥 Сегодня акций нет."
 
 class Form(StatesGroup):
     description = State()
-    edit_day = State()
-    edit_menu_text = State()
-    edit_promo = State()
 
 # ================= КЛАВИАТУРЫ =================
 
@@ -87,21 +80,56 @@ def ticket_actions_kb(tid):
 async def start(message: Message):
     await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
 
+# ================= НАЗАД =================
+
+@dp.message(F.text == "⬅ Назад")
+async def back(message: Message, state: FSMContext):
+    await state.clear()
+    active_manager_ticket.pop(message.from_user.id, None)
+    await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
+
+# ================= МЕНЮ =================
+
+@dp.message(StateFilter(None), F.text == "🍽 Меню")
+async def show_days(message: Message):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=day)] for day in menu_data] +
+                 [[KeyboardButton(text="⬅ Назад")]],
+        resize_keyboard=True
+    )
+    await message.answer("Выберите день:", reply_markup=kb)
+
+@dp.message(StateFilter(None), F.text.in_(menu_data.keys()))
+async def show_menu(message: Message):
+    await message.answer(menu_data[message.text])
+
+# ================= АКЦИИ =================
+
+@dp.message(StateFilter(None), F.text == "🔥 Акции")
+async def show_promo(message: Message):
+    await message.answer(promo_text, reply_markup=back_kb())
+
 # ================= СОЗДАНИЕ ЗАЯВКИ =================
 
 @dp.message(StateFilter(None), F.text.in_(["🚫 Проблема", "💡 Предложение"]))
 async def create_ticket(message: Message, state: FSMContext):
     await state.set_state(Form.description)
     await message.answer(
-        "Опишите ситуацию.\nВы можете отправить текст или фото с подписью.",
+        "Опишите ситуацию. Можно отправить текст или фото.",
         reply_markup=back_kb()
     )
 
-# ================= ПРИЁМ ЗАЯВКИ (ТЕКСТ ИЛИ ФОТО) =================
+# ================= ПРИЁМ ЗАЯВКИ =================
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
     global ticket_counter
+
+    # защита от "Назад"
+    if message.text == "⬅ Назад":
+        await state.clear()
+        await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
+        return
 
     ticket_counter += 1
 
@@ -111,7 +139,6 @@ async def receive_ticket(message: Message, state: FSMContext):
         "status": "open"
     }
 
-    # Уведомляем менеджеров
     for manager in MANAGER_IDS:
         if message.photo:
             await bot.send_photo(
@@ -149,7 +176,7 @@ async def show_tickets(message: Message):
 @dp.message(F.text.startswith("Заявка #"))
 async def open_ticket(message: Message):
     tid = int(message.text.split("#")[1])
-    if tid not in tickets:
+    if tid not in tickets or tickets[tid]["status"] != "open":
         return
     await message.answer(f"Заявка #{tid}", reply_markup=ticket_actions_kb(tid))
 
@@ -173,13 +200,13 @@ async def close_ticket(message: Message):
     active_manager_ticket.pop(message.from_user.id, None)
     await message.answer("Заявка закрыта.", reply_markup=main_kb(message.from_user.id))
 
-# ================= LIVE CHAT (С ФОТО) =================
+# ================= LIVE CHAT =================
 
 @dp.message()
 async def chat_router(message: Message):
     user_id = message.from_user.id
 
-    # Клиент пишет
+    # клиент пишет
     for tid, data in tickets.items():
         if data["user_id"] == user_id and data["status"] == "open":
             if data["manager_id"]:
@@ -196,7 +223,7 @@ async def chat_router(message: Message):
                     )
             return
 
-    # Менеджер пишет
+    # менеджер пишет
     if user_id in active_manager_ticket:
         tid = active_manager_ticket[user_id]
         if tickets[tid]["status"] == "open":
