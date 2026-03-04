@@ -230,38 +230,39 @@ async def receive_ticket(message: Message, state: FSMContext):
 
     if message.text == "⬅ Назад":
         await state.clear()
-        await message.answer("Главное меню:", reply_markup=main_kb(message.from_user.id))
+        await message.answer(
+            "Главное меню:",
+            reply_markup=main_kb(message.from_user.id)
+        )
         return
 
     ticket_counter += 1
 
     data = await state.get_data()
-ticket_type = data.get("type", "problem")
+    ticket_type = data.get("type", "problem")
 
-tickets[ticket_counter] = {
-    "user_id": message.from_user.id,
-    "manager_id": None,
-    "status": "open",
-    "type": ticket_type,
-    "text": message.text or message.caption,
-    "photo": message.photo[-1].file_id if message.photo else None
-}
+    tickets[ticket_counter] = {
+        "user_id": message.from_user.id,
+        "manager_id": None,
+        "status": "open",
+        "type": ticket_type,
+        "text": message.text or message.caption,
+        "photo": message.photo[-1].file_id if message.photo else None
+    }
 
+    # Уведомляем менеджеров
     for manager in MANAGER_IDS:
-        if message.photo:
-            await bot.send_photo(
-                manager,
-                photo=message.photo[-1].file_id,
-                caption=f"📩 Новая заявка #{ticket_counter}\n\n{message.caption or ''}"
-            )
-        else:
-            await bot.send_message(
-                manager,
-                f"📩 Новая заявка #{ticket_counter}\n\n{message.text}"
-            )
+        await bot.send_message(
+            manager,
+            f"📩 Новая заявка #{ticket_counter}"
+        )
 
     await state.clear()
-    await message.answer("✅ Заявка отправлена!", reply_markup=main_kb(message.from_user.id))
+
+    await message.answer(
+        "✅ Заявка отправлена!",
+        reply_markup=main_kb(message.from_user.id)
+    )
     
 # ================= ЗАЯВКИ ДЛЯ МЕНЕДЖЕРА =================
 
