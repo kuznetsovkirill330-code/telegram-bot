@@ -407,12 +407,26 @@ async def answer_ticket(message: Message):
         return
 
     if tid not in tickets or tickets[tid]["status"] != "open":
+        await message.answer("Заявка не найдена.")
         return
 
+    # Назначаем менеджера
     tickets[tid]["manager_id"] = message.from_user.id
     active_manager_ticket[message.from_user.id] = tid
 
-    await message.answer(f"Вы подключились к заявке #{tid}")
+    user_id = tickets[tid]["user_id"]
+
+    # Уведомление клиенту
+    await bot.send_message(
+        user_id,
+        "👨‍💼 Менеджер подключился к вашей заявке.\n\n"
+        "Он уже знакомится с вашим обращением и скоро ответит на ваши вопросы 💬"
+    )
+
+    await message.answer(
+        f"Вы подключились к заявке #{tid}.\n"
+        "Теперь вы можете писать сообщения клиенту."
+    )
 
 
 @dp.message(StateFilter(None), F.text.startswith("🔴 Закрыть #"))
