@@ -194,10 +194,33 @@ async def save_promo(message: Message, state: FSMContext):
 
 # ================= ЗАЯВКИ =================
 
-@dp.message(StateFilter(None), F.text.in_(["🚫 Проблема", "💡 Предложение"]))
-async def create_ticket(message: Message, state: FSMContext):
+# ---------- ПРОБЛЕМА ----------
+
+@dp.message(StateFilter(None), F.text == "🚫 Проблема")
+async def problem_start(message: Message, state: FSMContext):
     await state.set_state(Form.description)
-    await message.answer("Опишите ситуацию (можно фото):", reply_markup=back_kb())
+
+    await message.answer(
+        "Нам жаль, что возникла проблема 🙁\n\n"
+        "Опишите, пожалуйста, ситуацию как можно подробнее "
+        "и при необходимости прикрепите фото.\n\n"
+        "Мы обязательно разберёмся и поможем вам как можно быстрее 💛",
+        reply_markup=back_kb()
+    )
+
+
+# ---------- ПРЕДЛОЖЕНИЕ ----------
+
+@dp.message(StateFilter(None), F.text == "💡 Предложение")
+async def suggestion_start(message: Message, state: FSMContext):
+    await state.set_state(Form.description)
+
+    await message.answer(
+        "Поделитесь своими идеями или пожеланиями 😊\n\n"
+        "Мы внимательно читаем каждое сообщение и "
+        "искренне ценим вашу обратную связь 💛",
+        reply_markup=back_kb()
+    )
 
 @dp.message(Form.description)
 async def receive_ticket(message: Message, state: FSMContext):
@@ -271,20 +294,36 @@ async def open_ticket(message: Message):
         return
 
     ticket = tickets[tid]
+    user_id = ticket["user_id"]
 
-    # Показываем содержимое заявки
+    # Получаем информацию о пользователе
+    try:
+        chat = await bot.get_chat(user_id)
+        full_name = chat.full_name
+        username = f"@{chat.username}" if chat.username else "Нет username"
+    except:
+        full_name = "Неизвестно"
+        username = "Нет username"
+
+    # Формируем блок информации
+    user_info = (
+        f"📩 Заявка #{tid}\n\n"
+        f"👤 Имя: {full_name}\n"
+        f"🆔 ID: {user_id}\n"
+        f"🔗 Username: {username}\n\n"
+        f"📝 Текст обращения:\n{ticket['text'] or ''}"
+    )
+
+    # Если есть фото — отправляем фото с подписью
     if ticket["photo"]:
         await bot.send_photo(
             message.from_user.id,
             photo=ticket["photo"],
-            caption=f"📩 Заявка #{tid}\n\n{ticket['text'] or ''}"
+            caption=user_info
         )
     else:
-        await message.answer(
-            f"📩 Заявка #{tid}\n\n{ticket['text']}"
-        )
+        await message.answer(user_info)
 
-    # Показываем кнопки управления
     await message.answer(
         "Выберите действие:",
         reply_markup=ticket_actions_kb(tid)
