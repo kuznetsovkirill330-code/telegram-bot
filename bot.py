@@ -199,6 +199,7 @@ async def save_promo(message: Message, state: FSMContext):
 @dp.message(StateFilter(None), F.text == "🚫 Проблема")
 async def problem_start(message: Message, state: FSMContext):
     await state.set_state(Form.description)
+    await state.update_data(type="problem")
 
     await message.answer(
         "Нам жаль, что возникла проблема 🙁\n\n"
@@ -214,6 +215,7 @@ async def problem_start(message: Message, state: FSMContext):
 @dp.message(StateFilter(None), F.text == "💡 Предложение")
 async def suggestion_start(message: Message, state: FSMContext):
     await state.set_state(Form.description)
+    await state.update_data(type="suggestion")
 
     await message.answer(
         "Поделитесь своими идеями или пожеланиями 😊\n\n"
@@ -233,13 +235,17 @@ async def receive_ticket(message: Message, state: FSMContext):
 
     ticket_counter += 1
 
-    tickets[ticket_counter] = {
-        "user_id": message.from_user.id,
-        "manager_id": None,
-        "status": "open",
-        "text": message.text or message.caption,
-        "photo": message.photo[-1].file_id if message.photo else None
-    }
+    data = await state.get_data()
+ticket_type = data.get("type", "problem")
+
+tickets[ticket_counter] = {
+    "user_id": message.from_user.id,
+    "manager_id": None,
+    "status": "open",
+    "type": ticket_type,
+    "text": message.text or message.caption,
+    "photo": message.photo[-1].file_id if message.photo else None
+}
 
     for manager in MANAGER_IDS:
         if message.photo:
@@ -259,7 +265,69 @@ async def receive_ticket(message: Message, state: FSMContext):
     
 # ================= ЗАЯВКИ ДЛЯ МЕНЕДЖЕРА =================
 
+# ---------- РАЗДЕЛ ЗАЯВОК ----------
+
+def tickets_category_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🚫 Проблемы")],
+            [KeyboardButton(text="💡 Предложения")],
+            [KeyboardButton(text="⬅ Назад")]
+        ],
+        resize_keyboard=True
+    )
+
+
 @dp.message(StateFilter(None), F.text == "📩 Заявки")
+async def show_ticket_categories(message: Message):
+    if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
+        return
+
+    await message.answer("Выберите раздел:", reply_markup=tickets_category_kb())
+
+
+# ---------- СПИСОК ПРОБЛЕМ ----------
+
+@dp.message(StateFilter(None), F.text == "🚫 Проблемы")
+async def show_problems(message: Message):
+    open_tickets = [
+        tid for tid, t in tickets.items()
+        if t["status"] == "open" and t["type"] == "problem"
+    ]
+
+    if not open_tickets:
+        await message.answer("Нет открытых проблем.", reply_markup=tickets_category_kb())
+        return
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f"Заявка #{tid}")] for tid in open_tickets] +
+                 [[KeyboardButton(text="⬅ Назад")]],
+        resize_keyboard=True
+    )
+
+    await message.answer("Открытые проблемы:", reply_markup=kb)
+
+
+# ---------- СПИСОК ПРЕДЛОЖЕНИЙ ----------
+
+@dp.message(StateFilter(None), F.text == "💡 Предложения")
+async def show_suggestions(message: Message):
+    open_tickets = [
+        tid for tid, t in tickets.items()
+        if t["status"] == "open" and t["type"] == "suggestion"
+    ]
+
+    if not open_tickets:
+        await message.answer("Нет открытых предложений.", reply_markup=tickets_category_kb())
+        return
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=f"Заявка #{tid}")] for tid in open_tickets] +
+                 [[KeyboardButton(text="⬅ Назад")]],
+        resize_keyboard=True
+    )
+
+    await message.answer("Открытые предложения:", reply_markup=kb)
 async def show_tickets(message: Message):
     if message.from_user.id not in MANAGER_IDS and message.from_user.id != ADMIN_ID:
         return
