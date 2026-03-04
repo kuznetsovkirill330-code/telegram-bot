@@ -209,10 +209,13 @@ async def receive_ticket(message: Message, state: FSMContext):
         return
 
     ticket_counter += 1
+
     tickets[ticket_counter] = {
         "user_id": message.from_user.id,
         "manager_id": None,
-        "status": "open"
+        "status": "open",
+        "text": message.text or message.caption,
+        "photo": message.photo[-1].file_id if message.photo else None
     }
 
     for manager in MANAGER_IDS:
@@ -267,8 +270,23 @@ async def open_ticket(message: Message):
         await message.answer("Заявка не найдена.")
         return
 
+    ticket = tickets[tid]
+
+    # Показываем содержимое заявки
+    if ticket["photo"]:
+        await bot.send_photo(
+            message.from_user.id,
+            photo=ticket["photo"],
+            caption=f"📩 Заявка #{tid}\n\n{ticket['text'] or ''}"
+        )
+    else:
+        await message.answer(
+            f"📩 Заявка #{tid}\n\n{ticket['text']}"
+        )
+
+    # Показываем кнопки управления
     await message.answer(
-        f"Заявка #{tid}",
+        "Выберите действие:",
         reply_markup=ticket_actions_kb(tid)
     )
 
